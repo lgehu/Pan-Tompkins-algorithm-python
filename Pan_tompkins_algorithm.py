@@ -5,8 +5,8 @@
 ######################################
 
 import numpy as np
-from scipy.signal import butter, filtfilt
-
+import csv
+from scipy.signal import butter, filtfilt, find_peaks
 
 class Pan_tompkins:
     """ Implementationof Pan Tompkins Algorithm.
@@ -53,6 +53,9 @@ class Pan_tompkins:
 
         # 4.To get info about QRS complex
         self.integrated_signal = self.moving_window_integration( window_size)
+
+        # 5.Peak detection
+        self.peak_signal = self.peak_detection()
 
         return self.integrated_signal
 
@@ -146,3 +149,57 @@ class Pan_tompkins:
         integrated_signal[:window_size] = cumulative_sum[:window_size] / np.arange(1, window_size + 1)
 
         return integrated_signal
+    
+    def peak_detection(self):
+        integrated_signal = self.moving_window_integration()
+        peaks, _ = find_peaks(integrated_signal, height=np.mean(integrated_signal), width=0.2, distance=self.sample_rate*0.2)
+        return peaks
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    import wfdb
+    import argparse
+
+    parser = argparse.ArgumentParser("Pan-Tompkins implementation in python")
+    parser.add_argument("-i", "--input", required=True, 
+                        help="ECG data input, file extension must be excluded")
+    args = parser.parse_args()
+
+    ECG_data = []
+    timeStamp = []
+
+    data, fields = wfdb.rdsamp(args.input, channels=[0])
+    ECG_data = []        
+    for d in data: # Get data of channel 0
+        ECG_data.append(d[0])
+
+    timeStamp = [i/fields["fs"] for i in range(len(ECG_data))]
+    
+    dft = np.diff(timeStamp)
+    av = np.average(dft)
+    print(av)
+
+    algo = Pan_tompkins(ECG_data, 100)
+    signal = algo.fit()
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 8))
+
+    ax1.plot(timeStamp, ECG_data)
+    ax1.set_title("Raw ECG")
+    ax1.grid(True)
+
+    ax2.plot(timeStamp[:-1], signal)
+    
+    peak_index = algo.peak_detection()
+    peak_timeStamp = [timeStamp[i] for i in peak_index]
+
+    for peakTime in peak_timeStamp:
+        plt.axvline(x=peakTime, color='red', linestyle='-', label='Seuil = 6')
+
+    BPM = 60 / np.mean(np.diff(peak_timeStamp))
+    print(f"BPM={BPM} ")
+
+    ax2.set_title("Filtered ECG")
+    ax2.grid(True)
+
+    plt.show()
